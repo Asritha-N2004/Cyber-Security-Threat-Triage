@@ -1,0 +1,19 @@
+{
+  "synthetic": true,
+  "seed": 42,
+  "exceptions": {
+    "B0001": "amount_mismatch",
+    "B0002": "currency_mismatch",
+    "B0003": "timing_difference",
+    "B0004": "account_mismatch",
+    "B0005": "unmatched_source",
+    "FEE": "unmatched_source",
+    "MISSING": "unmatched_source"
+  },
+  "split": {
+    "SETTLE": [
+      "SPLIT-0",
+      "SPLIT-1"
+    ]
+  }
+}

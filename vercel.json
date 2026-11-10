@@ -1,0 +1,39 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "services": {
+    "dashboard": {
+      "root": "frontend/",
+      "framework": "vite",
+      "installCommand": "corepack pnpm install --frozen-lockfile",
+      "buildCommand": "corepack pnpm build",
+      "outputDirectory": "dist",
+      "rewrites": [{ "source": "/(.*)", "destination": "/index.html" }]
+    },
+    "api": {
+      "root": "backend/",
+      "framework": "fastapi",
+      "entrypoint": "app.main:app",
+      "buildCommand": "python -m alembic upgrade head",
+      "functions": {
+        "app/main.py": {
+          "maxDuration": 120,
+          "excludeFiles": "{tests/**,.local/**,.pytest*/**,**/*.db,**/*.db-*,**/__pycache__/**}"
+        }
+      }
+    }
+  },
+  "rewrites": [
+    { "source": "/api/(.*)", "destination": { "service": "api" } },
+    { "source": "/(.*)", "destination": { "service": "dashboard" } }
+  ],
+  "headers": [
+    {
+      "source": "/(.*)",
+      "headers": [
+        { "key": "X-Content-Type-Options", "value": "nosniff" },
+        { "key": "Referrer-Policy", "value": "same-origin" },
+        { "key": "X-Frame-Options", "value": "SAMEORIGIN" }
+      ]
+    }
+  ]
+}

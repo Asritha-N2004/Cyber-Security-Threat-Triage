@@ -1,0 +1,81 @@
+name: Reconciliation checks
+on: [push, pull_request]
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install -r backend/requirements.txt
+      - run: python -m alembic upgrade head
+        working-directory: backend
+      - run: python -m pytest -q
+        working-directory: backend
+      - run: python evaluation/run.py
+      - run: python evaluation/study.py --count 50
+  frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: corepack enable && pnpm install --frozen-lockfile
+        working-directory: frontend
+      - run: pnpm build && pnpm test
+        working-directory: frontend
+  postgres:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: reconcile
+          POSTGRES_PASSWORD: ci-ephemeral-only
+          POSTGRES_DB: reconcile
+        ports: ['5432:5432']
+        options: --health-cmd "pg_isready -U reconcile" --health-interval 5s --health-timeout 3s --health-retries 20
+    env:
+      DATABASE_URL: postgresql+psycopg://reconcile:ci-ephemeral-only@localhost:5432/reconcile
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install -r backend/requirements.txt
+      - run: python -m alembic upgrade head
+        working-directory: backend
+      - run: python -m app.bootstrap
+        working-directory: backend
+      - run: python scripts/verify_postgres.py
+        env:
+          RUN_FINANCIAL_SIMULATION_TESTS: '1'
+      - run: python -m pytest -q
+        working-directory: backend
+  browser:
+    runs-on: ubuntu-latest
+    env:
+      EXECUTION_MODE: simulation
+      LLM_PROVIDER: mock
+      RATE_LIMIT_PER_MINUTE: '10000'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: pip install -r backend/requirements.txt
+      - run: python -m alembic upgrade head && python -m app.bootstrap
+        working-directory: backend
+      - run: |
+          python -m uvicorn app.main:app --host 127.0.0.1 --port 8000 > .local/backend.log 2>&1 &
+          python -m app.worker > .local/worker.log 2>&1 &
+        working-directory: backend
+      - run: corepack enable && pnpm install --frozen-lockfile && pnpm exec playwright install --with-deps chromium
+        working-directory: frontend
+      - run: pnpm exec playwright test --workers=1
+        working-directory: frontend

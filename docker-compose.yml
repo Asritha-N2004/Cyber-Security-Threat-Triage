@@ -1,0 +1,63 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: reconcile
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: reconcile
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U reconcile -d reconcile"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+  redis:
+    image: redis:7-alpine
+    profiles: [cache]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+  backend:
+    build: ./backend
+    environment:
+      DATABASE_URL: postgresql+psycopg://reconcile:${POSTGRES_PASSWORD}@postgres:5432/reconcile
+      EXECUTION_MODE: ${EXECUTION_MODE:-recommendation}
+      LLM_PROVIDER: ${LLM_PROVIDER:-mock}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_MODEL: ${OPENAI_MODEL:-gpt-4.1-mini}
+      MAX_CORRECTION_ITERATIONS: ${MAX_CORRECTION_ITERATIONS:-3}
+      RATE_LIMIT_BACKEND: database
+      DUAL_APPROVAL_THRESHOLD: ${DUAL_APPROVAL_THRESHOLD:-10000}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - local-identities:/app/.local
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/v1/health',timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+  frontend:
+    build: ./frontend
+    ports:
+      - "127.0.0.1:8080:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+  worker:
+    build: ./backend
+    command: ["python", "-m", "app.worker"]
+    environment:
+      DATABASE_URL: postgresql+psycopg://reconcile:${POSTGRES_PASSWORD}@postgres:5432/reconcile
+      LLM_PROVIDER: ${LLM_PROVIDER:-mock}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+    depends_on:
+      backend:
+        condition: service_healthy
+volumes:
+  postgres-data:
+  local-identities:
